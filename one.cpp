@@ -101,6 +101,184 @@ class FunctionAST {
         : Proto(move(Proto)), Body(move(Body)) {}
 };
 }
+static int CurTok;
+static int getNextToken() { return CurTok = gettok(); }
+static map<char, int> BinopPrecedence;
+static int GetTokPrecedence() {
+    if (!isascii(CurTok))
+        return -1;
+    int TokPrec = BinopPrecedence[CurTok];
+    if (TokPrec <= 0)
+        return -1;
+    return TokPrec;
+}
+unique_ptr<ExprAST> LogError(const char *Str) {
+    fprintf(stderr, "Error: %s\n", Str);
+    return nullptr;
+}
+unique_ptr<PrototypeAST> LogErrorP(const char *Str) {
+    LogError(Str);
+    return nullptr;
+}
+unique_ptr<ExprAST> ParseExpression();
+unique_ptr<ExprAST> ParseNumberExpr() {
+    auto Result = make_unique<NumberExprAST>(NumVal);
+    getNextToken();
+    return move(Result);
+}
+static unique_ptr<ExprAST> ParseParenExpr() {
+    getNextToken();
+    auto V = ParseExpression();
+    if (!V)
+        return nullptr;
+    if (CurTok != ')')
+        return LogError("expected ')'");
+    getNextToken();
+    return V;
+}
+static unique_ptr<ExprAST> ParseIdentifierExpr() {
+    string IdName = IdentifierStr;
+    getNextToken();
+    if (CurTok != '(')
+        return make_unique<VariableExprAST>(IdName);
+    getNextToken();
+    vector<unique_ptr<ExprAST>> Args;
+    if (CurTok != ')') {
+        while (true) {
+            if (auto Arg = ParseExpression())
+                Args.push_back(move(Arg));
+            else
+                return nullptr;
+            if (CurTok == ')')
+                break;
+            if (CurTok != ',')
+                return LogError("Expected ')' or ',' in argument list");
+            getNextToken();
+        }
+    }
+    getNextToken();
+    return make_unique<CallExprAST>(IdName, move(Args));
+}
+static unique_ptr<ExprAST> ParsePrimary() {
+    switch (CurTok) {
+    default:
+        return LogError("unknown token when expecting an expression");
+    case toK_identifier:
+        return ParseIdentifierExpr();
+    case toK_number:
+        return ParseNumberExpr();
+    case '(':
+        return ParseParenExpr();
+    }
+}
+static unique_ptr<ExprAST> ParseBinOpRHS(int ExprPrec,unique_ptr<ExprAST> LHS) {
+    while (true) {
+        int TokPrec = GetTokPrecedence();
+        if (TokPrec < ExprPrec)
+            return LHS;
+        int BinOp = CurTok;
+        getNextToken();
+        auto RHS = ParsePrimary();
+        if (!RHS)
+            return nullptr;
+        int NextPrec = GetTokPrecedence();
+        if (TokPrec < NextPrec) {
+            RHS = ParseBinOpRHS(TokPrec + 1, move(RHS));
+            if (!RHS)
+                return nullptr;
+        }
+        LHS = make_unique<BinaryExprAST>(BinOp, move(LHS), move(RHS));
+    }
+}
+static unique_ptr<ExprAST> ParseExpression() {
+    auto LHS = ParsePrimary();
+    if (!LHS)
+        return nullptr;
+    return ParseBinOpRHS(0, move(LHS));
+}
+static unique_ptr<PrototypeAST> ParsePrototype() {
+    if (CurTok != toK_identifier)
+        return LogErrorP("Expected function name in prototype");
+    string FnName = IdentifierStr;
+    getNextToken();
+    if (CurTok != '(')
+        return LogErrorP("Expected '(' in prototype");
+    vector<string> ArgNames;
+    while (getNextToken() == toK_identifier)
+        ArgNames.push_back(IdentifierStr);
+    if (CurTok != ')')
+        return LogErrorP("Expected ')' in prototype");
+    getNextToken();
+    return make_unique<PrototypeAST>(FnName, move(ArgNames));
+}
+static unique_ptr<FunctionAST> ParseDefinition() {
+    getNextToken();
+    auto Proto = ParsePrototype();
+    if (!Proto)
+        return nullptr;
+    if (auto E = ParseExpression())
+        return make_unique<FunctionAST>(move(Proto), move(E));
+    return nullptr;
+}
+static unique_ptr<FunctionAST> ParseTopLevelExpr() {
+    if (auto E = ParseExpression()) {
+        auto Proto = make_unique<PrototypeAST>("__anon_expr",
+                                              vector<string>());
+        return make_unique<FunctionAST>(move(Proto), move(E));
+    }
+    return nullptr;
+}
+static unique_ptr<PrototypeAST> ParseExtern() {
+    getNextToken();
+    return ParsePrototype();
+}
+static void HandleDefinition() {
+    if (ParseDefinition()) {
+        fprintf(stderr, "Parsed a function definition.\n");
+    } else {
+        getNextToken();
+    }
+    
+}
+static void HandleExtern() {
+    if (ParseExtern()) {
+        fprintf(stderr, "Parsed an extern\n");
+    } else {
+        getNextToken();
+    }
+}
+static void HandleTopLevelExpression() {
+    if (ParseTopLevelExpr()) {
+        fprintf(stderr, "Parsed a top-level expr\n");
+    } else {
+        getNextToken();
+    }
+}
+static void MainLoop() {
+    while (true) {
+        fprintf(stderr, "ready> ");
+        switch (CurTok) {
+        case toK_eof:
+            return;
+        case toK_def:
+            HandleDefinition();
+            break;
+        case toK_extern:
+            HandleExtern();
+            break;
+        default:
+            HandleTopLevelExpression();
+            break;
+        }
+    }
+}
 int main() {
+  BinopPrecedence['<'] = 10;
+  BinopPrecedence['+'] = 20;
+  BinopPrecedence['-'] = 20;
+  BinopPrecedence['*'] = 40;
+    fprintf(stderr, "ready> ");
+    getNextToken();
+    MainLoop();
   return 0;
 }
