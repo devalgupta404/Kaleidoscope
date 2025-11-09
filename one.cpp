@@ -383,6 +383,8 @@ int main() {
   BinopPrecedence['*'] = 40;
     fprintf(stderr, "ready> ");
     getNextToken();
+    InitializeModule();
     MainLoop();
+    TheModule->print(errs(), nullptr);
   return 0;
 }
