@@ -330,28 +330,33 @@ Function *FunctionAST::codegen() {
     TheFunction->eraseFromParent();
     return nullptr;
 }
-static void HandleDefinition() {
-    if (ParseDefinition()) {
-        fprintf(stderr, "Parsed a function definition.\n");
-    } else {
-        getNextToken();
-    }
-    
+static void InitializeModule(){
+    TheContext = make_unique<LLVMContext>();
+    TheModule = make_unique<Module>("my cool jit", *TheContext);
+    Builder = make_unique<IRBuilder<>>(*TheContext);
 }
-static void HandleExtern() {
-    if (ParseExtern()) {
-        fprintf(stderr, "Parsed an extern\n");
+static void HandleDefinition() {
+    if (auto FnAST = ParseDefinition()) {
+        if (auto *FnIR = FnAST->codegen()) {
+            fprintf(stderr, "Parsed a function definition.\n");
+            FnIR->print(errs());
+            fprintf(stderr, "\n");
+        }
     } else {
         getNextToken();
     }
 }
 static void HandleTopLevelExpression() {
-    if (ParseTopLevelExpr()) {
-        fprintf(stderr, "Parsed a top-level expr\n");
+    if (auto FnAST = ParseTopLevelExpr()) {
+        if (auto *FnIR = FnAST->codegen()) {
+            fprintf(stderr, "Parsed a top-level expr\n");
+            FnIR->print(errs());
+            fprintf(stderr, "\n");
+        }
     } else {
         getNextToken();
     }
-}
+}   
 static void MainLoop() {
     while (true) {
         fprintf(stderr, "ready> ");
@@ -370,6 +375,7 @@ static void MainLoop() {
         }
     }
 }
+
 int main() {
   BinopPrecedence['<'] = 10;
   BinopPrecedence['+'] = 20;
