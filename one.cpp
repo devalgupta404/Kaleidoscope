@@ -302,6 +302,34 @@ Value *CallExprAST::codegen() {
     }
     return Builder->CreateCall(CalleeF, ArgsV, "calltmp");
 }
+Function *PrototypeAST::codegen() {
+    vector<Type *> Doubles(Args.size(), Type::getDoubleTy(*TheContext));
+    FunctionType *FT =
+        FunctionType::get(Type::getDoubleTy(*TheContext), Doubles, false);
+    Function *F =
+        Function::Create(FT, Function::ExternalLinkage, Name, TheModule.get());
+    unsigned Idx = 0;
+    for (auto &Arg : F->args())
+        Arg.setName(Args[Idx++]);
+    return F;
+}
+Function *FunctionAST::codegen() {
+    Function *TheFunction = Proto->codegen();
+    if (!TheFunction)
+        return nullptr;
+    BasicBlock *BB = BasicBlock::Create(*TheContext, "entry", TheFunction);
+    Builder->SetInsertPoint(BB);
+    NamedValues.clear();
+    for (auto &Arg : TheFunction->args())
+        NamedValues[string(Arg.getName())] = &Arg;
+    if (Value *RetVal = Body->codegen()) {
+        Builder->CreateRet(RetVal);
+        verifyFunction(*TheFunction);
+        return TheFunction;
+    }
+    TheFunction->eraseFromParent();
+    return nullptr;
+}
 static void HandleDefinition() {
     if (ParseDefinition()) {
         fprintf(stderr, "Parsed a function definition.\n");
